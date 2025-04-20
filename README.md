@@ -30,3 +30,39 @@ pip install -r requirements.txt
 
 # Simulate a negotiation round
 python simulations/agent_vs_agent.py --agent1 rl --agent2 adversarial
+
+---
+
+## ✅ Initial Task Checklist
+- [ ] Create negotiation environment with reward signals
+- [ ] Implement baseline rule-based agent
+- [ ] Train RL-based negotiation agent (PPO/DQN)
+- [ ] Log negotiation outcomes for analysis
+- [ ] Create visualization notebook
+
+---
+
+## 📁 Folder Overview
+
+| Folder             | Description                              |
+|--------------------|------------------------------------------|           
+| agents/            | All agent implementations                |
+| environment/       | Negotiation gym-style environment        |
+| simulations/       | Scripts to run agent-vs-agent scenarios  |
+| models/            | RL policy models                         |
+| notebooks/         | Strategy exploration & plotting          |
+
+---
+
+## 🧠 Sample Agent Code
+
+```python
+class RuleBasedAgent:
+    def __init__(self, min_accept=0.6):
+        self.min_accept = min_accept
+    
+    def propose(self, last_offer):
+        return 1.0 - (1.0 - self.min_accept) * 0.9
+    
+    def respond(self, offer):
+        return offer >= self.min_accept
