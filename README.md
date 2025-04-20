@@ -25,11 +25,16 @@ This project explores multi-agent negotiation using autonomous agents with varyi
 ## 🚀 Run Simulation
 
 ```bash
+# Create and activate a virtual environment (recommended)
+python3 -m venv .venv
+source .venv/bin/activate
+
 # Install requirements
 pip install -r requirements.txt
 
 # Simulate a negotiation round
 python simulations/agent_vs_agent.py --agent1 rl --agent2 adversarial
+```
 
 ---
 
