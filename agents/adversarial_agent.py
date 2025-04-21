@@ -37,21 +37,45 @@ class AdversarialAgent:
         Returns:
             dict: Action.
         """
-        last_offer = observation.get("last_offer")
-        max_utility = observation.get("max_utility", 1.0)
-        round_num = observation.get("round", 0)
-
-        if last_offer:
-            offer_utility = self.utility_function(last_offer) / max_utility
+        # --- FIX: Update observation key access to match environment format ---
+        last_offer_received = observation.get("last_offer_received")
+        offer_valid = observation.get("offer_valid", 0)
+        
+        # Handle round value that could be either an int or a numpy array
+        round_val = observation.get("round", 0)
+        # If it's a list or numpy array, extract the first element
+        if hasattr(round_val, "__len__") and len(round_val) > 0:
+            round_value = round_val[0]
+        else:
+            # Otherwise assume it's already a scalar
+            round_value = round_val
+        
+        # Calculate max possible utility (all items)
+        max_items = {f"item{i}": MAX_ITEM_QUANTITY for i in range(NUM_ITEMS)}
+        max_utility = self.utility_function(max_items)
+        
+        # Only process the last offer if it's valid
+        if offer_valid and last_offer_received is not None:
+            # Convert numpy array to dictionary format for utility function
+            last_offer_dict = {f"item{i}": int(last_offer_received[i]) 
+                              for i in range(len(last_offer_received))}
+            
+            offer_utility = self.utility_function(last_offer_dict) / max_utility
             # Accept only if the offer is very high
             if offer_utility >= self.acceptance_threshold:
-                return {"type": "accept"}
+                return {"type": 0}  # 0 = accept
 
-        # Make a high offer, conceding slightly only if necessary over time
-        offer_ratio = max(self.min_offer_ratio, self.current_offer_ratio - (round_num * self.concession_step))
+        # Make a high offer, conceding slightly over time
+        offer_ratio = max(self.min_offer_ratio, 
+                          self.current_offer_ratio - (round_value * self.concession_step))
 
         my_offer_items = self._generate_offer_items(offer_ratio * max_utility)
-        return {"type": "offer", "value": my_offer_items}
+        
+        # Debug print to understand agent behavior
+        # print(f"DEBUG ({self.name}): Round {round_value}, offering with target ratio {offer_ratio:.2f}")
+        # print(f"DEBUG ({self.name}): Offer: {my_offer_items}")
+        
+        return {"type": 1, "value": my_offer_items}  # 1 = offer
 
     def _generate_offer_items(self, target_utility_value):
         """

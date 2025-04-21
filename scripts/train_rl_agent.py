@@ -5,6 +5,7 @@ from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import VecMonitor, DummyVecEnv
 import gymnasium
 from gymnasium.spaces import Box, Discrete, Dict
+import traceback  # Add this for better error reporting
 
 # --- Add project root to sys.path ---
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
@@ -30,14 +31,50 @@ class PettingZooGymWrapper(gymnasium.Env):
         # Reset the environment to get the action and observation spaces
         self.env.reset()
         
-        # Store the original action space
+        # Store the original action and observation spaces
         self.original_action_space = self.env.action_space(self.agent_id)
+        self.original_observation_space = self.env.observation_space(self.agent_id)
         
-        # Convert Dict observation space to Box observation space if needed
-        self.observation_space = self.env.observation_space(self.agent_id)
+        # --- Convert Dict observation space to flat Box observation space ---
+        if isinstance(self.original_observation_space, Dict):
+            # Extract components and determine total size
+            total_size = 0
+            obs_low = []
+            obs_high = []
+            
+            # Handle 'last_offer_received': Box(0, 10, (2,), int32)
+            if "last_offer_received" in self.original_observation_space.spaces:
+                offer_space = self.original_observation_space["last_offer_received"]
+                total_size += np.prod(offer_space.shape)
+                obs_low.extend([0] * np.prod(offer_space.shape))
+                obs_high.extend([MAX_ITEM_QUANTITY] * np.prod(offer_space.shape))
+            
+            # Handle 'offer_valid': Discrete(2)
+            if "offer_valid" in self.original_observation_space.spaces:
+                total_size += 1
+                obs_low.append(0)
+                obs_high.append(1)
+            
+            # Handle 'round': Box(0, 20, (1,), int32)
+            if "round" in self.original_observation_space.spaces:
+                round_space = self.original_observation_space["round"]
+                total_size += np.prod(round_space.shape)
+                obs_low.extend([0] * np.prod(round_space.shape))
+                obs_high.extend([20] * np.prod(round_space.shape))  # Assuming max_rounds=20
+            
+            # Create the flattened observation space
+            self.observation_space = Box(
+                low=np.array(obs_low, dtype=np.float32),
+                high=np.array(obs_high, dtype=np.float32),
+                dtype=np.float32
+            )
+            
+            print(f"Converted observation space from {self.original_observation_space} to {self.observation_space}")
+        else:
+            # If not a Dict, just use the original
+            self.observation_space = self.original_observation_space
         
         # --- Convert Dict action space to flat action space ---
-        # Extract components from the Dict action space
         if isinstance(self.original_action_space, Dict):
             # Action type (accept=0, offer=1)
             self.action_type_space = self.original_action_space["type"]
@@ -55,7 +92,24 @@ class PettingZooGymWrapper(gymnasium.Env):
         else:
             # If not a Dict, just use the original
             self.action_space = self.original_action_space
+    
+    def _dict_to_flat_obs(self, dict_obs):
+        """Convert a Dict observation to a flat Box observation."""
+        flat_parts = []
         
+        # Extract and flatten each component in the same order as in __init__
+        if "last_offer_received" in dict_obs:
+            flat_parts.append(dict_obs["last_offer_received"].flatten())
+        
+        if "offer_valid" in dict_obs:
+            flat_parts.append(np.array([dict_obs["offer_valid"]], dtype=np.float32))
+        
+        if "round" in dict_obs:
+            flat_parts.append(dict_obs["round"].flatten())
+        
+        # Concatenate all parts into a single flat array
+        return np.concatenate(flat_parts).astype(np.float32)
+    
     def reset(self, **kwargs):
         """Reset the environment and return the initial observation for our agent."""
         self.env.reset()
@@ -69,62 +123,102 @@ class PettingZooGymWrapper(gymnasium.Env):
                 action = self.env.action_space(self.env.agent_selection).sample()
             self.env.step(action)
         
-        # Return our agent's observation
-        return self.env.observe(self.agent_id), {}  # Adding empty info dict for Gymnasium compatibility
+        # Get the original observation
+        original_obs = self.env.observe(self.agent_id)
+        
+        # Convert Dict observation to flat Box observation if needed
+        if isinstance(self.original_observation_space, Dict):
+            flat_obs = self._dict_to_flat_obs(original_obs)
+        else:
+            flat_obs = original_obs
+        
+        return flat_obs, {}  # Adding empty info dict for Gymnasium compatibility
     
     def step(self, action):
         """Take a step in the environment using the action for our agent."""
-        # --- Convert flat action back to Dict format ---
-        if isinstance(self.original_action_space, Dict):
-            # Convert from Box to Dict
-            # Extract action type (first value, rounded to int 0 or 1)
-            action_type = int(np.round(action[0]))
-            
-            # If accept action (type=0), no need for offer details
-            if action_type == 0:
-                env_action = {"type": 0}
-            # If offer action (type=1), include the offer values
+        try:
+            # --- Convert flat action back to Dict format ---
+            if isinstance(self.original_action_space, Dict):
+                # Convert from Box to Dict
+                # Extract action type (first value, rounded to int 0 or 1)
+                action_type = int(np.round(action[0]))
+                action_type = np.clip(action_type, 0, 1)  # Ensure it's 0 or 1
+                
+                # If accept action (type=0), no need for offer details
+                if action_type == 0:
+                    env_action = {"type": 0}  # Accept action doesn't need "offer" key
+                # If offer action (type=1), include the offer values
+                else:
+                    # Extract offer values (remaining values, rounded to ints)
+                    offer_values = np.round(action[1:]).astype(np.int32)
+                    # Clip to valid range
+                    offer_values = np.clip(offer_values, 0, MAX_ITEM_QUANTITY)
+                    env_action = {"type": 1, "offer": offer_values}
             else:
-                # Extract offer values (remaining values, rounded to ints)
-                offer_values = np.round(action[1:]).astype(np.int32)
-                # Clip to valid range
-                offer_values = np.clip(offer_values, 0, MAX_ITEM_QUANTITY)
-                env_action = {"type": 1, "offer": offer_values}
-        else:
-            # If not using Dict conversion, pass through unchanged
-            env_action = action
-        
-        # Take our agent's action in the original format the env expects
-        self.env.step(env_action)
-        
-        # Have other agents act until it's our turn again
-        done = False
-        while self.env.agent_selection != self.agent_id and not done:
-            if self.env.terminations[self.env.agent_selection] or self.env.truncations[self.env.agent_selection]:
-                self.env.step(None)  # Terminated agents must pass None
+                # If not using Dict conversion, pass through unchanged
+                env_action = action
+            
+            # Take our agent's action in the original format the env expects
+            self.env.step(env_action)
+            
+            # Have other agents act until it's our turn again
+            done = False
+            while self.env.agent_selection != self.agent_id and not done:
+                if self.env.agent_selection not in self.env.agents:
+                    # Environment might have reset between steps
+                    break
+                    
+                if self.env.terminations.get(self.env.agent_selection, False) or self.env.truncations.get(self.env.agent_selection, False):
+                    self.env.step(None)  # Terminated agents must pass None
+                else:
+                    # Take a random action for other agents
+                    other_action = self.env.action_space(self.env.agent_selection).sample()
+                    self.env.step(other_action)
+                
+                # Check if the environment is done after other agents act
+                done = all(self.env.terminations.values()) or all(self.env.truncations.values())
+            
+            # Get the next observation, reward, termination flag, and truncation flag for our agent
+            # Check if agent still exists (might have been removed if env reset)
+            if self.agent_id in self.env.agents:
+                reward = self.env.rewards.get(self.agent_id, 0.0)
+                terminated = self.env.terminations.get(self.agent_id, False)
+                truncated = self.env.truncations.get(self.agent_id, False)
+                
+                if not done:
+                    original_next_obs = self.env.observe(self.agent_id)
+                    # Convert Dict observation to flat Box observation if needed
+                    if isinstance(self.original_observation_space, Dict):
+                        next_obs = self._dict_to_flat_obs(original_next_obs)
+                    else:
+                        next_obs = original_next_obs
+                else:
+                    # For terminal states, return zeros observation
+                    next_obs = np.zeros(self.observation_space.shape, dtype=self.observation_space.dtype)
             else:
-                # Take a random action for other agents
-                other_action = self.env.action_space(self.env.agent_selection).sample()
-                self.env.step(other_action)
+                # Agent no longer exists (environment likely reset)
+                reward = 0.0
+                terminated = True
+                truncated = False
+                # Return zeros observation for terminal state
+                next_obs = np.zeros(self.observation_space.shape, dtype=self.observation_space.dtype)
             
-            # Check if the environment is done after other agents act
-            done = all(self.env.terminations.values()) or all(self.env.truncations.values())
-        
-        # Get the next observation, reward, termination flag, and truncation flag for our agent
-        next_obs = self.env.observe(self.agent_id) if not done else None
-        reward = self.env.rewards[self.agent_id]
-        terminated = self.env.terminations[self.agent_id]
-        truncated = self.env.truncations[self.agent_id]
-        
-        # Additional info for debugging
-        info = {"other_agents": [agent for agent in self.env.agents if agent != self.agent_id]}
-        
-        # If environment is done but our agent wasn't terminated or truncated,
-        # we need to indicate termination for compatibility with SB3
-        if done and not (terminated or truncated):
-            terminated = True
+            # Additional info for debugging
+            info = {"other_agents": [agent for agent in self.env.agents if agent != self.agent_id]}
             
-        return next_obs, reward, terminated, truncated, info
+            # If environment is done but our agent wasn't terminated or truncated,
+            # we need to indicate termination for compatibility with SB3
+            if done and not (terminated or truncated):
+                terminated = True
+            
+            return next_obs, reward, terminated, truncated, info
+            
+        except Exception as e:
+            print(f"Error in step method: {e}")
+            print(traceback.format_exc())
+            # Return a safe fallback response
+            zero_obs = np.zeros(self.observation_space.shape, dtype=self.observation_space.dtype)
+            return zero_obs, 0.0, True, False, {}
     
     def close(self):
         """Close the environment."""
@@ -209,8 +303,12 @@ if __name__ == "__main__":
         save_path = os.path.join(MODEL_SAVE_DIR, f"{MODEL_SAVE_NAME}_{TOTAL_TIMESTEPS}.zip")
         model.save(save_path)
         print(f"Model saved to {save_path}")
+    except KeyError as ke:
+        print(f"KeyError during training: {ke}")
+        print(traceback.format_exc())  # Print full traceback
     except Exception as e:
         print(f"Training error: {e}")
+        print(traceback.format_exc())  # Print full traceback
     finally:
         # --- Cleanup ---
         vec_env.close()
