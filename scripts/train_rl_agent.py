@@ -227,7 +227,7 @@ class PettingZooGymWrapper(gymnasium.Env):
 # --- Configuration ---
 TRAIN_ALGORITHM = PPO
 POLICY_TYPE = "MlpPolicy"
-TOTAL_TIMESTEPS = 10_000  # Reduce for faster testing initially
+TOTAL_TIMESTEPS = 100_000  # Increase from 10,000 to 100,000
 LEARNING_RATE = 3e-4
 BATCH_SIZE = 64
 N_STEPS = 2048  # Might need adjustment for single env, but keep for now

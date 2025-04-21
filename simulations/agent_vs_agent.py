@@ -137,8 +137,11 @@ if __name__ == "__main__":
     render_mode = "human" if args.render else None
     # Define utility functions (example - could be configurable)
     agent_utilities = {
-        "agent_0": lambda offer: offer[0] * 0.8 + offer[1] * 0.2,
-        "agent_1": lambda offer: offer[0] * 0.1 + offer[1] * 0.9,
+        "agent_0": lambda offer: offer[0] * 0.9 + offer[1] * 0.1 if isinstance(offer, (np.ndarray, list)) 
+                    else offer.get("item0", 0) * 0.9 + offer.get("item1", 0) * 0.1,
+        
+        "agent_1": lambda offer: offer[0] * 0.1 + offer[1] * 0.9 if isinstance(offer, (np.ndarray, list))
+                    else offer.get("item0", 0) * 0.1 + offer.get("item1", 0) * 0.9,
     }
     env = negotiation_env(render_mode=render_mode, max_rounds=args.rounds, agent_utils=agent_utilities)
 
@@ -231,3 +234,6 @@ if __name__ == "__main__":
         print(f"Agreement Rate: {agreement_rate:.2%}")
         print(f"Avg Reward Agent 0 ({args.agent1}): {avg_reward_a0:.3f}")
         print(f"Avg Reward Agent 1 ({args.agent2}): {avg_reward_a1:.3f}")
+
+    # Example configuration
+    example_config = {"high_threshold": 0.7, "low_offer": 0.7, "concession_step": 0.05}

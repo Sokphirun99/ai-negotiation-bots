@@ -22,7 +22,7 @@ This project explores multi-agent negotiation using autonomous agents with varyi
 
 ---
 
-## 🚀 Run Simulation
+## 🚀 Getting Started
 
 ```bash
 # Create and activate a virtual environment (recommended)
@@ -31,26 +31,76 @@ source .venv/bin/activate
 
 # Install requirements
 pip install -r requirements.txt
+```
 
-# Simulate a negotiation round
-python simulations/agent_vs_agent.py --agent1 rl --agent2 adversarial
+### Train the RL Agent
+```bash
+# Train for 100,000 steps (recommended)
+python scripts/train_rl_agent.py
+```
+
+### Run Simulations
+```bash
+# RL vs Adversarial (with reasonable parameters)
+python simulations/agent_vs_agent.py --agent1 rl --agent2 adversarial --agent2_config '{"high_threshold": 0.7, "low_offer": 0.7}'
+
+# RL vs Cooperative
+python simulations/agent_vs_agent.py --agent1 rl --agent2 cooperative
+
+# Run multiple simulations for statistical significance
+python simulations/agent_vs_agent.py --agent1 rl --agent2 adversarial --agent2_config '{"high_threshold": 0.7, "low_offer": 0.7}' --simulations 10
+```
+
+### Interactive Dashboard
+```bash
+# Launch the visual dashboard for easier interaction
+streamlit run dashboard.py
 ```
 
 ---
 
-📊 Outputs
-	•	CSV logs of each negotiation round
-	•	Plots showing success rate vs. agent type
-	•	Nash equilibrium visualizations
+## 🏆 Results & Findings
+
+### RL Agent Performance
+Our PPO-trained negotiation agent successfully learned effective negotiation strategies after 100,000 training steps:
+
+- **Agreement Rate**: Successfully reaches agreements with reasonable adversarial agents
+- **Utility Maximization**: Consistently accepts offers giving it more of the items it values
+- **Learning Progression**: Clear improvement in negotiation success between 10K and 100K training steps
+
+### Strategy Analysis
+Different agent combinations revealed interesting negotiation patterns:
+
+| Agent Pairing           | Notable Behaviors                                   |
+|-------------------------|-----------------------------------------------------|
+| RL vs. Adversarial      | Quick agreements when adversarial parameters are reasonable |
+| RL vs. Cooperative      | Generally reaches fair deals                        |
+| RL vs. Rule-based       | Depends on rule-based acceptance thresholds         |
+| RL vs. RL               | Struggles with initial offers, both waiting to accept |
+
+### Utility Function Impact
+Agent performance varies significantly across different utility structures:
+- **Complementary Preferences**: Highest agreement rate (agents want different items)
+- **Competitive Preferences**: Lower agreement rate (agents want same items)
 
 ---
 
-## ✅ Initial Task Checklist
-- [ ] Create negotiation environment with reward signals
-- [ ] Implement baseline rule-based agent
-- [ ] Train RL-based negotiation agent (PPO/DQN)
-- [ ] Log negotiation outcomes for analysis
-- [ ] Create visualization notebook
+## 📊 Outputs
+- CSV logs of each negotiation round saved to simulation_logs
+- Summary statistics of agreement rates and rewards
+- Visual dashboard for analyzing negotiation patterns
+
+---
+
+## ✅ Project Checklist
+- [x] Create negotiation environment with reward signals
+- [x] Implement baseline rule-based agent
+- [x] Train RL-based negotiation agent (PPO)
+- [x] Log negotiation outcomes for analysis
+- [x] Create interactive dashboard
+- [ ] Implement curriculum learning for better offering behavior
+- [ ] Add multi-item (3+) negotiations
+- [ ] Add communication/signaling between agents
 
 ---
 
@@ -62,35 +112,31 @@ python simulations/agent_vs_agent.py --agent1 rl --agent2 adversarial
 | environment/       | Negotiation gym-style environment        |
 | simulations/       | Scripts to run agent-vs-agent scenarios  |
 | models/            | RL policy models                         |
-| notebooks/         | Strategy exploration & plotting          |
+| logs/              | Simulation results and training logs     |
+| scripts/           | Training and utility scripts             |
 
 ---
 
-## 🧠 Sample Agent Code
+## 🧠 Known Limitations & Future Work
 
-```python
-class RuleBasedAgent:
-    def __init__(self, min_accept=0.6):
-        self.min_accept = min_accept
-    
-    def propose(self, last_offer):
-        return 1.0 - (1.0 - self.min_accept) * 0.9
-    
-    def respond(self, offer):
-        return offer >= self.min_accept
+- **RL vs RL Issue**: Both agents tend to wait for the other to make offers
+- **Limited Item Types**: Currently only supports 2 item types
+- **Fixed Utility Functions**: Agents cannot infer opponent preferences
+
+Future improvements:
+- Implement preference inference
+- Add more complex negotiation scenarios (3+ items)
+- Develop better opening strategies for RL agents
 
 ---
 
-# 📈 Sample Plot (Success Rate by Agent Pairing)
+## 📈 Visualization
 
-Use strategy_analysis.ipynb to generate:
-	•	Bar charts of successful deal percentages
-	•	Line plots of average agreement utility
-	•	Heatmaps of negotiation durations
+Use the Streamlit dashboard to visualize:
+- Agreement rates between different agent pairings
+- Negotiation timeline visualizations
+- Distribution of items in successful agreements
+- Agent utility preference comparisons
 
----
-
-# 🔐 Bonus Ideas
-	•	Add time-based pressure (deadlines + decaying utility)
-	•	Implement deception (false signaling of preferences)
-	•	Use a Streamlit dashboard to let users simulate negotiation bots in-browser
+```bash
+streamlit run dashboard.py

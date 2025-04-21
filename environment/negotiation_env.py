@@ -252,10 +252,8 @@ class NegotiationEnv(AECEnv):
             print(f"Normalized Rewards: {agent}={self.rewards[agent]:.2f}, {opponent}={self.rewards[opponent]:.2f}")
 
         else:
-            # Small penalty for taking a step without agreement? Optional.
-            # self.rewards[agent] = -0.01
-            pass
-
+            # Increase penalty for no agreement
+            self.rewards["agent_0"] = -5.0  # Stronger penalty (if agent_0 is the RL agent)
 
         # --- Advance Round and Check Truncation ---
         # Cycle agent - select next agent

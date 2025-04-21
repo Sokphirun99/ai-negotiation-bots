@@ -75,87 +75,62 @@ class RLNegotiatorAgent:
         return formatted_action
 
     def _preprocess_observation(self, env_observation):
-        """
-        Converts the environment's observation dictionary into the format
-        expected by the trained RL model's observation space.
-        (Refined Placeholder)
-        """
+        """Converts environment observation to model-compatible format."""
         if self.env_observation_space is None or self.model is None:
             return None
 
-        # --- IMPORTANT: Use Gymnasium's flatten utility ---
-        # This is the standard way SB3's make_vec_env handles Dict spaces for MlpPolicy
         try:
-            # Ensure the observation matches the structure defined in the space
-            # (This might involve converting lists to numpy arrays if needed)
-            # Example: Ensure 'round' is np.array([value]) if space expects Box(1,)
-            checked_observation = env_observation.copy()  # Don't modify original
-            for key, space in self.env_observation_space.items():
-                if key in checked_observation and isinstance(checked_observation[key], list):
-                    checked_observation[key] = np.array(checked_observation[key], dtype=space.dtype)
-                # Add more checks/conversions if necessary based on your specific Dict structure
-
-            # Flatten the dictionary observation using the environment's space definition
-            flat_obs = utils.flatten(self.env_observation_space, checked_observation)
-            flat_obs = flat_obs.astype(self.model.observation_space.dtype)  # Ensure correct dtype
-
-            # Double-check shape (optional but good practice)
-            if flat_obs.shape != self.model.observation_space.shape:
-                print(f"FATAL ERROR ({self.name}): Flattened observation shape {flat_obs.shape} != model expected shape {self.model.observation_space.shape}. Check env space definition and flattening.")
-                return None  # Critical mismatch
-
+            # Create a fixed-size observation array matching model's expected shape
+            flat_obs = np.zeros(self.model.observation_space.shape, dtype=np.float32)
+            
+            # Extract only the keys we care about in fixed order
+            # 1-2: last_offer_received (2 values)
+            if 'last_offer_received' in env_observation and env_observation['last_offer_received'] is not None:
+                offer = env_observation['last_offer_received']
+                if len(offer) >= 2:  # Ensure there are at least 2 values
+                    flat_obs[0] = float(offer[0])
+                    flat_obs[1] = float(offer[1])
+            
+            # 3: offer_valid (1 value)
+            if 'offer_valid' in env_observation:
+                flat_obs[2] = float(env_observation['offer_valid'])
+            
+            # 4: round (1 value)
+            if 'round' in env_observation:
+                round_val = env_observation['round']
+                if hasattr(round_val, "__len__"):
+                    flat_obs[3] = float(round_val[0])
+                else:
+                    flat_obs[3] = float(round_val)
+            
+            # Skip max_utility and last_offer - they weren't part of training
+                    
             return flat_obs
-
+            
         except Exception as e:
-            print(f"Error during observation flattening for {self.name}: {e}")
-            print(f"Original Observation: {env_observation}")
-            print(f"Env Observation Space: {self.env_observation_space}")
+            print(f"Error during observation preprocessing: {e}")
             return None
 
     def _format_action(self, model_action):
-        """
-        Converts the action output from the RL model into the dictionary format
-        expected by the environment's step function ({'type': int, 'value': dict/None}).
-        (Refined Placeholder)
-        """
-        # This depends HEAVILY on the structure of your environment's action space
-        # and how the model's action space corresponds to it.
+        """Converts model output to environment-compatible action format."""
+        try:
+            # Extract action type (first value)
+            action_type = int(np.round(model_action[0]))
+            action_type = np.clip(action_type, 0, 1)  # Ensure it's 0 or 1
 
-        # Assuming env action space is Dict:
-        # {'type': Discrete(2), 'offer': Box(0, MAX_ITEM_QUANTITY, (NUM_ITEMS,), int32)}
-        # And model action space is likely a flattened Box or MultiDiscrete combining these.
-
-        # Example Scenario: Model outputs a single array [type, item0_qty, item1_qty, ...]
-        if isinstance(model_action, np.ndarray):
-            try:
-                # --- Extract action components based on model's action space structure ---
-                # This requires knowing the exact structure of self.model.action_space
-                # Example: If model.action_space is Box(low=0, high=MAX_Q, shape=(1+NUM_ITEMS,))
-                action_type = int(np.round(model_action[0]))  # Round/clip if Box space
-                action_type = np.clip(action_type, 0, 1)  # Assuming Discrete(2) for type
-
-                if action_type == 0:  # Accept
-                    return {"type": 0}
-                elif action_type == 1:  # Offer
-                    # Extract offer part - ADJUST indices based on model action space
-                    my_items_array = np.round(model_action[1:]).astype(np.int32)
-                    my_items_array = np.clip(my_items_array, 0, MAX_ITEM_QUANTITY)
-
-                    # Convert to the required dictionary format for 'value'
-                    offer_value = {f"item{i}": int(my_items_array[i]) for i in range(NUM_ITEMS)}
-                    return {"type": 1, "value": offer_value}
-                else:
-                    print(f"Warning ({self.name}): Model output unknown action type {action_type}. Defaulting to accept.")
-                    return {"type": 0}
-
-            except (IndexError, ValueError) as e:
-                print(f"Error formatting model action array for {self.name}: {e}")
-                print(f"Model action received: {model_action}")
-                print(f"Model action space: {self.model.action_space if self.model else 'None'}")
-                return {"type": 0}  # Default to accept on error
-        else:
-            print(f"Warning ({self.name}): Unexpected model action format (expected ndarray): {model_action}. Defaulting to accept.")
-            return {"type": 0}
+            if action_type == 0:  # Accept
+                return {"type": 0}  # Just send type=0 for accept
+            else:  # Offer
+                # Extract offer values and clip to valid range
+                offer_values = np.round(model_action[1:1+NUM_ITEMS]).astype(np.int32)
+                offer_values = np.clip(offer_values, 0, MAX_ITEM_QUANTITY)
+                
+                # Return the correct format with 'offer' key (not 'value')
+                return {"type": 1, "offer": offer_values}
+        
+        except Exception as e:
+            print(f"Error formatting action: {e}")
+            return {"type": 0}  # Default to accept on error
 
     def observe(self, reward, terminated, info):
         pass
