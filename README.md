@@ -38,6 +38,13 @@ python simulations/agent_vs_agent.py --agent1 rl --agent2 adversarial
 
 ---
 
+📊 Outputs
+	•	CSV logs of each negotiation round
+	•	Plots showing success rate vs. agent type
+	•	Nash equilibrium visualizations
+
+---
+
 ## ✅ Initial Task Checklist
 - [ ] Create negotiation environment with reward signals
 - [ ] Implement baseline rule-based agent
@@ -71,3 +78,19 @@ class RuleBasedAgent:
     
     def respond(self, offer):
         return offer >= self.min_accept
+
+---
+
+# 📈 Sample Plot (Success Rate by Agent Pairing)
+
+Use strategy_analysis.ipynb to generate:
+	•	Bar charts of successful deal percentages
+	•	Line plots of average agreement utility
+	•	Heatmaps of negotiation durations
+
+---
+
+# 🔐 Bonus Ideas
+	•	Add time-based pressure (deadlines + decaying utility)
+	•	Implement deception (false signaling of preferences)
+	•	Use a Streamlit dashboard to let users simulate negotiation bots in-browser
