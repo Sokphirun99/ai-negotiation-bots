@@ -1,0 +1,6 @@
+simulation_id,agent1_type,agent2_type,agreement_reached,agent0_final_reward,agent1_final_reward,final_round
+0,rulebased,adversarial,False,0,-1.0,20
+1,rulebased,adversarial,False,0,-1.0,20
+2,rulebased,adversarial,False,0,-1.0,20
+3,rulebased,adversarial,False,0,-1.0,20
+4,rulebased,adversarial,False,0,-1.0,20

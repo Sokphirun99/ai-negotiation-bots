@@ -1,97 +1,161 @@
-from stable_baselines3 import PPO
+import os
 import numpy as np
+from stable_baselines3 import PPO  # Or your specific algorithm
+from gymnasium.spaces import utils  # Import space flattening utility
+
+# Assuming NUM_ITEMS and MAX_ITEM_QUANTITY are accessible
+try:
+    from environment.negotiation_env import NUM_ITEMS, MAX_ITEM_QUANTITY
+except ImportError:
+    NUM_ITEMS = 2
+    MAX_ITEM_QUANTITY = 10
 
 class RLNegotiatorAgent:
-    def __init__(self, model_path, name="RLNegotiatorAgent"):
-        """
-        Initializes an RL-based agent by loading a pre-trained model.
-        Args:
-            model_path (str): Path to the trained Stable-Baselines3 model.
-            name (str): Name of the agent.
-        """
+    def __init__(self, name="RLAgent", model_path="models/ppo_negotiator"):
         self.name = name
-        try:
-            self.model = PPO.load(model_path)
-            print(f"RL model loaded successfully from {model_path}")
-        except Exception as e:
-            print(f"Failed to load RL model from {model_path}: {e}")
-            print("RLNrgotistorAgent will not function correctly.")
-            self.action_space = None
-                # Utility function might be implicitly learned or handled by the environment's reward
-        self.utility_function = None # Usually not explicitly defined here for RL
+        self.model = None
+        self.utility_function = lambda offer: 0.0  # Default utility
+        self.env_observation_space = None  # To store env's original space
+        self.env_action_space = None  # To store env's original space
+
+        if not model_path.endswith('.zip'):
+            model_path += '.zip'
+
+        if os.path.exists(model_path):
+            try:
+                self.model = PPO.load(model_path)
+                print(f"Successfully loaded RL model for {self.name} from {model_path}")
+                # --- Store model's expected spaces ---
+                print(f"DEBUG ({self.name}): Model Observation Space: {self.model.observation_space}")
+                print(f"DEBUG ({self.name}): Model Action Space: {self.model.action_space}")
+            except Exception as e:
+                print(f"Error loading RL model from {model_path}: {e}")
+                self.model = None
+        else:
+            print(f"Failed to load RL model: Path does not exist at '{model_path}'")
+            self.model = None
 
     def set_utility_function(self, utility_func):
-                 # RL agents typically learn based on rewards from the environment,
-                 # which reflect the utility. Direct setting might not be standard.
-        print("Warning: Setting utility function directly on RL agent may not be standard.")
         self.utility_function = utility_func
+        print(f"Warning: Setting utility function directly on {self.name} may not be standard.")
+
+    # --- Add method to receive env spaces ---
+    def set_environment_spaces(self, observation_space, action_space):
+        """Stores the original environment spaces for reference."""
+        self.env_observation_space = observation_space
+        self.env_action_space = action_space
+        print(f"DEBUG ({self.name}): Received Env Observation Space: {self.env_observation_space}")
+        print(f"DEBUG ({self.name}): Received Env Action Space: {self.env_action_space}")
+    # --- End of added method ---
 
     def decide(self, observation):
-        """
-        Decides an action using the loaded RL model.
-        Args:
-            observation: The current environment state, formatted as expected by the model.
-                         Needs to be compatible with the model's observation space.
-        Returns:
-            Action predicted by the RL model. The format depends on the action space.
-        """
         if not self.model:
-            print("Error: RL model not loaded. Cannot decide.")
-                        # Return a default/dummy action or raise an error
-            return {"type": "no_action"} # Example dummy action
+            print(f"Error: {self.name} has no loaded model. Returning default action (accept).")
+            return {"type": "accept"}
 
-        # Ensure observation is in the correct format (e.g., numpy array)
-        # This step is CRUCIAL and depends heavily on your environment definition
-        processed_observation = self._preprocess_observation(observation)
+        # --- Add check for env spaces ---
+        if self.env_observation_space is None:
+            print(f"Error ({self.name}): Environment observation space not set via set_environment_spaces. Cannot preprocess.")
+            return {"type": "accept"}
+        # --- End of check ---
 
-        action, _states = self._preprocess_observation(observation)
-                # Post-process action if necessary to fit the environment's expected format
+        print(f"\nDEBUG ({self.name}): Received Raw Env Observation:\n{observation}")  # DEBUG PRINT
+        processed_obs = self._preprocess_observation(observation)
+        if processed_obs is None:
+            print(f"Error: {self.name} failed to preprocess observation. Returning default action.")
+            return {"type": "accept"}
+        print(f"DEBUG ({self.name}): Preprocessed Observation for Model:\n{processed_obs}")  # DEBUG PRINT
+
+        action, _states = self.model.predict(processed_obs, deterministic=True)
+        print(f"DEBUG ({self.name}): Raw Model Action Output:\n{action}")  # DEBUG PRINT
+
         formatted_action = self._format_action(action)
+        print(f"DEBUG ({self.name}): Formatted Action for Env:\n{formatted_action}")  # DEBUG PRINT
+
         return formatted_action
-    def _preprocess_observation(self, observation):
-        # Placeholder: Convert your environment's observation dict/object
-        # into the format expected by the SB3 model (e.g., a NumPy array).
-        # This depends heavily on your NegotiationEnv's observation space.
-        print("Warning: RLNegotiatorAgent._preprocess_observation needs implementation.")
-        # Example: Flatten dictionary values into a numpy array
-        # This assumes observation is a dict of numbers and order is consistent.
+
+    def _preprocess_observation(self, env_observation):
+        """
+        Converts the environment's observation dictionary into the format
+        expected by the trained RL model's observation space.
+        (Refined Placeholder)
+        """
+        if self.env_observation_space is None or self.model is None:
+            return None
+
+        # --- IMPORTANT: Use Gymnasium's flatten utility ---
+        # This is the standard way SB3's make_vec_env handles Dict spaces for MlpPolicy
         try:
-            # Ensure consistent order if using dict values
-            # It's generally better to define an explicit order or use Gymnasium spaces
-            ordered_keys = sorted(observation.key())
-            return np.array(observation.keys())
+            # Ensure the observation matches the structure defined in the space
+            # (This might involve converting lists to numpy arrays if needed)
+            # Example: Ensure 'round' is np.array([value]) if space expects Box(1,)
+            checked_observation = env_observation.copy()  # Don't modify original
+            for key, space in self.env_observation_space.items():
+                if key in checked_observation and isinstance(checked_observation[key], list):
+                    checked_observation[key] = np.array(checked_observation[key], dtype=space.dtype)
+                # Add more checks/conversions if necessary based on your specific Dict structure
+
+            # Flatten the dictionary observation using the environment's space definition
+            flat_obs = utils.flatten(self.env_observation_space, checked_observation)
+            flat_obs = flat_obs.astype(self.model.observation_space.dtype)  # Ensure correct dtype
+
+            # Double-check shape (optional but good practice)
+            if flat_obs.shape != self.model.observation_space.shape:
+                print(f"FATAL ERROR ({self.name}): Flattened observation shape {flat_obs.shape} != model expected shape {self.model.observation_space.shape}. Check env space definition and flattening.")
+                return None  # Critical mismatch
+
+            return flat_obs
+
         except Exception as e:
-            print(f"Error processing observation: {e}. Using zeros.")
-            # Determine the expected shape from the model if possible
-            obs_shape = self.model.observation_space.shape if self.model else (1,)
-            return np.zeros(obs_shape, dtype=np. float32)
-        
-    def _format_action(self, action):
-        # Placeholder: Convert the action output by the SB3 model
-        # into the format expected by your environment (e.g., a dictionary).
-        # This depends heavily on your NegotiationEnv's action space.
-        print("Warning: RLNegotiatorAgent._format_action needs implementation.")
-        # Example: If action is a single number representing offer utility ratio
-        if isinstance(action, (np.number, float)):
-            return {"type": "offer", "value": self._generate_offer_item(action)}
-        # Example: If action is discrete (e.g., 0=accept, 1=reject, 2=offer_low, 3=offer_high)
-        elif isinstance(action, (np.int64, int)):
-            if action == 0: return {"type": "accept"}
-            elif action == 1: return {"type": "reject"} # Or make a counter-offer
-            else:
-                # Needs logic for different offer types
-                offer_val = 0.5 if action == 2 else 0.8 # Example
-                return {"type": "offer", "value": self._generate_offer_item(offer_val)}
-        return action # Return raw action if no formatting needed/possible
-    
-    def _generate_offer_item(self, target_utility_ratio):
-        # Placeholder: Needs actual logic based on item space and utility
-        print(f"Warning: RLNegotiatorAgent._generate_offer_items needs implementation.")
-        # This likely needs access to max_utility or item details
-        return {"item1": int(target_utility_ratio * 5), "item2": int(target_utility_ratio * 5)} 
+            print(f"Error during observation flattening for {self.name}: {e}")
+            print(f"Original Observation: {env_observation}")
+            print(f"Env Observation Space: {self.env_observation_space}")
+            return None
+
+    def _format_action(self, model_action):
+        """
+        Converts the action output from the RL model into the dictionary format
+        expected by the environment's step function ({'type': int, 'value': dict/None}).
+        (Refined Placeholder)
+        """
+        # This depends HEAVILY on the structure of your environment's action space
+        # and how the model's action space corresponds to it.
+
+        # Assuming env action space is Dict:
+        # {'type': Discrete(2), 'offer': Box(0, MAX_ITEM_QUANTITY, (NUM_ITEMS,), int32)}
+        # And model action space is likely a flattened Box or MultiDiscrete combining these.
+
+        # Example Scenario: Model outputs a single array [type, item0_qty, item1_qty, ...]
+        if isinstance(model_action, np.ndarray):
+            try:
+                # --- Extract action components based on model's action space structure ---
+                # This requires knowing the exact structure of self.model.action_space
+                # Example: If model.action_space is Box(low=0, high=MAX_Q, shape=(1+NUM_ITEMS,))
+                action_type = int(np.round(model_action[0]))  # Round/clip if Box space
+                action_type = np.clip(action_type, 0, 1)  # Assuming Discrete(2) for type
+
+                if action_type == 0:  # Accept
+                    return {"type": 0}
+                elif action_type == 1:  # Offer
+                    # Extract offer part - ADJUST indices based on model action space
+                    my_items_array = np.round(model_action[1:]).astype(np.int32)
+                    my_items_array = np.clip(my_items_array, 0, MAX_ITEM_QUANTITY)
+
+                    # Convert to the required dictionary format for 'value'
+                    offer_value = {f"item{i}": int(my_items_array[i]) for i in range(NUM_ITEMS)}
+                    return {"type": 1, "value": offer_value}
+                else:
+                    print(f"Warning ({self.name}): Model output unknown action type {action_type}. Defaulting to accept.")
+                    return {"type": 0}
+
+            except (IndexError, ValueError) as e:
+                print(f"Error formatting model action array for {self.name}: {e}")
+                print(f"Model action received: {model_action}")
+                print(f"Model action space: {self.model.action_space if self.model else 'None'}")
+                return {"type": 0}  # Default to accept on error
+        else:
+            print(f"Warning ({self.name}): Unexpected model action format (expected ndarray): {model_action}. Defaulting to accept.")
+            return {"type": 0}
 
     def observe(self, reward, terminated, info):
-        """Observes the outcome (RL agents use this during training, not typically during inference)."""
-        # This method is primarily used during the training loop, not usually
-        # when the agent is just acting based on a loaded policy.
         pass
