@@ -1,6 +1,6 @@
 agent_id,round,reward,termination,truncation,action_type,offer_to_opponent
-agent_0,0,0.0,False,False,0.0,
-agent_1,1,0.0,False,False,1.0,"[10, 2]"
+agent_0,0,0.0,False,False,1.0,"[2, 4]"
+agent_1,1,0.0,False,False,1.0,"[10, 0]"
 agent_0,1,-10.0,False,False,0.0,
-agent_1,2,0.27999999999999997,True,False,,
-agent_0,2,0.08,True,False,,
+agent_1,2,0.1,True,False,,
+agent_0,2,0.1,True,False,,

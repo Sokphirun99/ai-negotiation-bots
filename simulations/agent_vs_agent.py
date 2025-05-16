@@ -75,7 +75,15 @@ def run_simulation(env, agents_dict):
             # Format action (only if agent is alive)
             env_action = {"type": 0, "offer": np.zeros(NUM_ITEMS, dtype=np.int32)}
             if isinstance(action_dict, dict):
-                env_action["type"] = action_dict.get("type", 0)
+                # Convert string action type to integer for environment
+                if action_dict.get("type") == "accept":
+                    env_action["type"] = 0
+                elif action_dict.get("type") == "offer":
+                    env_action["type"] = 1
+                else:
+                    # Fall back to numeric values if provided
+                    env_action["type"] = action_dict.get("type", 0)
+                
                 agent_offer_value = action_dict.get("value")
                 step_log['action_type'] = env_action["type"]  # Log action type
 

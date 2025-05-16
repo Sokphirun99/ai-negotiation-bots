@@ -1,5 +1,15 @@
 import random
 
+# Assuming NUM_ITEMS and MAX_ITEM_QUANTITY are accessible or defined here
+try:
+    # Try importing from environment if it's structured that way
+    from environment.negotiation_env import NUM_ITEMS, MAX_ITEM_QUANTITY
+except ImportError:
+    # Fallback defaults if import fails (adjust if necessary)
+    print("Warning: Could not import NUM_ITEMS/MAX_ITEM_QUANTITY from environment. Using defaults.")
+    NUM_ITEMS = 2
+    MAX_ITEM_QUANTITY = 10
+
 class CooperativeAgent:
     def __init__(self, name="CooperativeAgent", fairness_threshold=0.45, initial_offer_ratio=0.6):
         """
@@ -28,14 +38,27 @@ class CooperativeAgent:
         Returns:
             dict: Action.
         """
-        last_offer = observation.get("last_offer")
+        last_offer_received = observation.get("last_offer_received")
+        offer_valid = observation.get("offer_valid", 0)
         max_utility = observation.get("max_utility", 1.0)
-        round_num = observation.get("round", 0)
+        
+        # Handle round value that could be either an int or a numpy array
+        round_val = observation.get("round", 0)
+        # If it's a list or numpy array, extract the first element
+        if hasattr(round_val, "__len__") and len(round_val) > 0:
+            round_num = round_val[0]
+        else:
+            round_num = round_val
 
-        if last_offer:
-            my_utility = self.utility_function(last_offer)
+        # Only process if a valid offer was received
+        if offer_valid and last_offer_received is not None:
+            # Convert numpy array to dictionary format for utility function
+            last_offer_dict = {f"item{i}": int(last_offer_received[i]) 
+                              for i in range(len(last_offer_received))}
+            
+            my_utility = self.utility_function(last_offer_dict)
             # Estimate opponent's utility (CRUCIAL and HARD - requires assumptions or opponent modeling)
-            opponent_utility_estimate = self._estimate_opponent_utility(last_offer, max_utility)
+            opponent_utility_estimate = self._estimate_opponent_utility(last_offer_dict, max_utility)
 
             my_utility_ratio = my_utility / max_utility
             opponent_utility_ratio_estimate = opponent_utility_estimate / max_utility
@@ -60,12 +83,44 @@ class CooperativeAgent:
         print(f"Warning: CooperativeAgent._estimate_opponent_utility is using a naive estimation.")
         return estimated_opponent_utility
 
-    def _generate_offer_items(self, target_utility):
-        # Placeholder: Needs actual logic based on item space and utility
-        print(f"Warning: CooperativeAgent._generate_offer_items needs implementation.")
-        # Try to generate an offer that gives roughly target_utility to self
-        # and leaves a reasonable amount for the opponent.
-        return {"item1": int(target_utility / 2), "item2": int(target_utility / 2)} # Example
+    def _generate_offer_items(self, target_utility_value):
+        """
+        Generate an offer aiming for a specific utility value.
+        This is a more sophisticated implementation that tries to find a fair distribution.
+        """
+        # Start with an even distribution
+        my_items = {}
+        for i in range(NUM_ITEMS):
+            my_items[f"item{i}"] = MAX_ITEM_QUANTITY // 2
+        
+        # Adjust until we're close to target utility
+        current_utility = self.utility_function(my_items)
+        max_iterations = 10
+        
+        if current_utility > target_utility_value:
+            # Need to reduce
+            while current_utility > target_utility_value and max_iterations > 0:
+                # Reduce my share of a random item
+                item_idx = random.randint(0, NUM_ITEMS-1)
+                if my_items[f"item{item_idx}"] > 0:
+                    my_items[f"item{item_idx}"] -= 1
+                    current_utility = self.utility_function(my_items)
+                max_iterations -= 1
+        else:
+            # Need to increase
+            while current_utility < target_utility_value and max_iterations > 0:
+                # Increase my share of a random item
+                item_idx = random.randint(0, NUM_ITEMS-1)
+                if my_items[f"item{item_idx}"] < MAX_ITEM_QUANTITY:
+                    my_items[f"item{item_idx}"] += 1
+                    current_utility = self.utility_function(my_items)
+                max_iterations -= 1
+        
+        # Make sure all values are integers
+        for key in my_items:
+            my_items[key] = int(my_items[key])
+            
+        return my_items
 
     def observe(self, reward, terminated, info):
         """Observes the outcome."""

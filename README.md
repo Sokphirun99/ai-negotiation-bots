@@ -130,13 +130,122 @@ Future improvements:
 
 ---
 
-## 📈 Visualization
+## 🔄 System Flowchart & Overall Program Flow
 
-Use the Streamlit dashboard to visualize:
-- Agreement rates between different agent pairings
-- Negotiation timeline visualizations
-- Distribution of items in successful agreements
-- Agent utility preference comparisons
+```
+┌──────────────────┐       ┌──────────────────────┐       ┌──────────────────┐
+│                  │       │                      │       │                  │
+│  Environment     │◄─────►│  Agent Environment   │◄─────►│  Agents          │
+│  (PettingZoo)    │       │  Cycle (AECEnv)      │       │  (4 Types)       │
+│                  │       │                      │       │                  │
+└──────────────────┘       └──────────────────────┘       └──────────────────┘
+        │                           │                             │
+        │                           │                             │
+        ▼                           ▼                             ▼
+┌──────────────────┐       ┌──────────────────────┐       ┌──────────────────┐
+│                  │       │                      │       │                  │
+│  Observation     │       │  Action Selection    │       │  Utility         │
+│  Space           │─────► │  & Decision-Making   │◄──────│  Functions       │
+│                  │       │                      │       │                  │
+└──────────────────┘       └──────────────────────┘       └──────────────────┘
+                                     │
+                                     │
+                                     ▼
+                           ┌──────────────────────┐
+                           │                      │
+                           │  Simulation Runner   │
+                           │  & Analysis          │
+                           │                      │
+                           └──────────────────────┘
+                                     │
+                                     │
+                                     ▼
+                           ┌──────────────────────┐
+                           │                      │
+                           │  Dashboard &         │
+                           │  Visualization       │
+                           │                      │
+                           └──────────────────────┘
+```
 
-```bash
-streamlit run dashboard.py
+## 🔄 Overall Program Flow
+
+```mermaid
+flowchart TD
+    A[Start Program] --> B[Initialize Environment]
+    B --> C[Load Agent Types]
+    C --> D{Simulation Type}
+    
+    D -->|1| E[Agent vs Agent]
+    D -->|2| F[Multi-Round Simulation]
+    D -->|3| G[Interactive Dashboard]
+    D -->|4| H[Train RL Agent]
+    D -->|5| I[Exit Program]
+    
+    E --> J[Setup Agents]
+    F --> J
+    G --> J
+    H --> T[Initialize Training Environment]
+    
+    J --> K[Configure Utility Functions]
+    K --> L[Run Negotiation]
+    
+    L --> M{Turn-based Loop}
+    M -->|Agent 0's Turn| N[Agent 0 Decision]
+    M -->|Agent 1's Turn| O[Agent 1 Decision]
+    
+    N --> P{Decision Type}
+    O --> P
+    
+    P -->|Make Offer| Q[Format & Submit Offer]
+    P -->|Accept Offer| R[Accept Last Offer]
+    
+    Q --> S[Update Environment State]
+    R --> S
+    
+    S -->|Agreement Reached| U[Calculate Rewards]
+    S -->|Max Rounds Reached| U
+    S -->|Continue| M
+    
+    U --> V[Log Results]
+    V --> W[Generate Analysis]
+    
+    T --> X[PPO Training Loop]
+    X --> Y[Collect Experiences]
+    Y --> Z[Update Policy]
+    Z --> AA[Evaluate Performance]
+    AA -->|Continue Training| X
+    AA -->|Training Complete| BB[Save Model]
+    
+    W --> CC{Next Steps}
+    BB --> CC
+    
+    CC -->|Run Another Simulation| D
+    CC -->|Visualize Results| DD[Display Dashboard]
+    CC -->|Exit| EE[End Program]
+    
+    DD --> CC
+    
+    I --> EE
+```
+
+### Key Decision Points in the Flow
+
+1. **Simulation Selection**:
+   - Agent vs Agent: Direct 1v1 negotiation between two selected agent types
+   - Multi-Round: Run many negotiations with the same agent pairing for statistical analysis
+   - Interactive: Use the Streamlit dashboard for visualization and parameter tuning
+   - Training: Train a new RL agent model using the PPO algorithm
+
+2. **Agent Decision Process**:
+   - Each agent receives an observation containing environment state
+   - Decision logic varies by agent type:
+     - Rule-based: Fixed threshold-based decisions
+     - Adversarial: Maximize personal gain
+     - Cooperative: Balance personal gain with opponent satisfaction
+     - RL: Use trained neural network policy to determine actions
+
+3. **Negotiation Outcomes**:
+   - Agreement: Both agents reach mutually acceptable item distribution
+   - No Agreement: Max rounds reached without acceptance
+   - Utility Calculation: Determine reward based on each agent's preference function

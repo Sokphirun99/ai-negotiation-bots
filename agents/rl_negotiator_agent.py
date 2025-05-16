@@ -1,4 +1,5 @@
 import os
+import random
 import numpy as np
 from stable_baselines3 import PPO  # Or your specific algorithm
 from gymnasium.spaces import utils  # Import space flattening utility
@@ -17,6 +18,7 @@ class RLNegotiatorAgent:
         self.utility_function = lambda offer: 0.0  # Default utility
         self.env_observation_space = None  # To store env's original space
         self.env_action_space = None  # To store env's original space
+        self.is_random_agent = False  # Use this as a fallback when model can't be loaded
 
         if not model_path.endswith('.zip'):
             model_path += '.zip'
@@ -30,10 +32,14 @@ class RLNegotiatorAgent:
                 print(f"DEBUG ({self.name}): Model Action Space: {self.model.action_space}")
             except Exception as e:
                 print(f"Error loading RL model from {model_path}: {e}")
+                print(f"WARNING: Falling back to random behavior")
                 self.model = None
+                self.is_random_agent = True  # If model fails, we'll use random behavior
         else:
             print(f"Failed to load RL model: Path does not exist at '{model_path}'")
+            print(f"WARNING: Falling back to random behavior")
             self.model = None
+            self.is_random_agent = True  # Use random behavior as fallback
 
     def set_utility_function(self, utility_func):
         self.utility_function = utility_func
@@ -49,30 +55,38 @@ class RLNegotiatorAgent:
     # --- End of added method ---
 
     def decide(self, observation):
+        # If model couldn't be loaded and we're using random behavior
+        if self.is_random_agent:
+            return self._random_action(observation)
+            
         if not self.model:
-            print(f"Error: {self.name} has no loaded model. Returning default action (accept).")
-            return {"type": "accept"}
+            print(f"Error: {self.name} has no loaded model. Using fallback strategy.")
+            return self._random_action(observation)
 
         # --- Add check for env spaces ---
         if self.env_observation_space is None:
-            print(f"Error ({self.name}): Environment observation space not set via set_environment_spaces. Cannot preprocess.")
-            return {"type": "accept"}
+            print(f"Error ({self.name}): Environment observation space not set. Using fallback strategy.")
+            return self._random_action(observation)
         # --- End of check ---
 
         print(f"\nDEBUG ({self.name}): Received Raw Env Observation:\n{observation}")  # DEBUG PRINT
         processed_obs = self._preprocess_observation(observation)
         if processed_obs is None:
-            print(f"Error: {self.name} failed to preprocess observation. Returning default action.")
-            return {"type": "accept"}
+            print(f"Error: {self.name} failed to preprocess observation. Using fallback strategy.")
+            return self._random_action(observation)
         print(f"DEBUG ({self.name}): Preprocessed Observation for Model:\n{processed_obs}")  # DEBUG PRINT
 
-        action, _states = self.model.predict(processed_obs, deterministic=True)
-        print(f"DEBUG ({self.name}): Raw Model Action Output:\n{action}")  # DEBUG PRINT
+        try:
+            action, _states = self.model.predict(processed_obs, deterministic=True)
+            print(f"DEBUG ({self.name}): Raw Model Action Output:\n{action}")  # DEBUG PRINT
 
-        formatted_action = self._format_action(action)
-        print(f"DEBUG ({self.name}): Formatted Action for Env:\n{formatted_action}")  # DEBUG PRINT
+            formatted_action = self._format_action(action)
+            print(f"DEBUG ({self.name}): Formatted Action for Env:\n{formatted_action}")  # DEBUG PRINT
 
-        return formatted_action
+            return formatted_action
+        except Exception as e:
+            print(f"Error during model prediction: {e}. Using fallback strategy.")
+            return self._random_action(observation)
 
     def _preprocess_observation(self, env_observation):
         """Converts environment observation to model-compatible format."""
@@ -119,18 +133,40 @@ class RLNegotiatorAgent:
             action_type = np.clip(action_type, 0, 1)  # Ensure it's 0 or 1
 
             if action_type == 0:  # Accept
-                return {"type": 0}  # Just send type=0 for accept
+                return {"type": "accept"}  # Format for accept should be "accept" string, not 0
             else:  # Offer
                 # Extract offer values and clip to valid range
                 offer_values = np.round(model_action[1:1+NUM_ITEMS]).astype(np.int32)
                 offer_values = np.clip(offer_values, 0, MAX_ITEM_QUANTITY)
                 
-                # Return the correct format with 'offer' key (not 'value')
-                return {"type": 1, "offer": offer_values}
+                # Format as expected by agent_vs_agent.py - with "value" containing the item allocations
+                # This represents the items the agent wants to keep for itself
+                my_items = {}
+                for i in range(NUM_ITEMS):
+                    my_items[f"item{i}"] = int(MAX_ITEM_QUANTITY - offer_values[i])
+                
+                return {"type": "offer", "value": my_items}
         
         except Exception as e:
             print(f"Error formatting action: {e}")
             return {"type": 0}  # Default to accept on error
+
+    def _random_action(self, observation):
+        """Generate random actions when model is not available."""
+        print(f"Using random fallback behavior for {self.name}")
+        
+        # Random decision: 20% chance to accept, 80% chance to make offer
+        if 'offer_valid' in observation and observation['offer_valid'] and random.random() < 0.2:
+            return {"type": "accept"}
+        
+        # Make a random offer that keeps most valuable items for self
+        my_items = {}
+        for i in range(NUM_ITEMS):
+            # Keep 60-100% of items for self (give 0-40% to opponent)
+            my_share = int(MAX_ITEM_QUANTITY * (0.6 + 0.4 * random.random()))
+            my_items[f"item{i}"] = my_share
+        
+        return {"type": "offer", "value": my_items}
 
     def observe(self, reward, terminated, info):
         pass
